@@ -2,28 +2,26 @@ import {
   AdditiveBlending,
   createSystem,
   DistanceGrabbable,
-  Euler,
   Grabbed,
   Hovered,
   Mesh,
   MeshBasicMaterial,
   MovementMode,
-  Quaternion,
   RayInteractable,
   setWorldPosition,
-  setWorldQuaternion,
   SphereGeometry,
   Vector3,
   type Entity,
 } from '@iwsdk/core';
 import { AngleDial, ShapeHandle, WindLever } from './aero-components.js';
 import { ANGLE_LIMITS, emit, lab, on, type HandleWorld } from './aero/lab-state.js';
-import { LEVER_RAIL, MAX_WIND_KMH, MIN_WIND_KMH } from './aero/tunnel.js';
+import { DIAL_POSITION, LEVER_RAIL, MAX_WIND_KMH, MIN_WIND_KMH } from './aero/tunnel.js';
 import { CAR_PARAM_LIMITS, type CarParam } from './aero/types.js';
 
 /**
  * Hand controls: the wind-speed lever (a knob that slides along LEVER_RAIL),
- * the angle dial (a knob you twist about its vertical axis) and the shape
+ * the angle knob (pinch it and lift your hand to raise the nose, lower it to
+ * drop the nose; it springs back to its base on release) and the shape
  * handles (grabbable spheres on the parametric car, one per lab.handleAnchors
  * entry, each sliding along one world axis).
  *
@@ -35,13 +33,15 @@ import { CAR_PARAM_LIMITS, type CarParam } from './aero/types.js';
 const WIND_EMIT_INTERVAL = 0.1;   // s, ~10 Hz
 const ANGLE_EMIT_INTERVAL = 0.1;  // s, ~10 Hz
 const SHAPE_EMIT_INTERVAL = 0.125; // s, ~8 Hz
-/** Degrees of model angle per degree of knob twist. */
-const DIAL_GAIN = 0.25;
+/** Degrees of model angle per metre the angle knob is lifted (10 cm = 20 deg). */
+const DIAL_GAIN = 200;
+/** How far the angle knob can travel up or down from its base. */
+const DIAL_TRAVEL = 0.1;
 const HOVER_SCALE = 1.3;
-const HANDLE_RADIUS = 0.018;
-const HALO_RADIUS = 0.03;
-const RAD2DEG = 180 / Math.PI;
-const TWO_PI = Math.PI * 2;
+const HANDLE_RADIUS = 0.015;
+const HALO_RADIUS = 0.022;
+/** Where unused handles wait, far below the floor (out of sight and out of ray reach). */
+const PARK_Y = -10;
 
 interface HandleRecord {
   entity: Entity;
@@ -49,8 +49,8 @@ interface HandleRecord {
   /** Drag in progress with a valid anchor and car. */
   active: boolean;
   held: boolean;
-  /** Anchor vanished while held: destroy on release. */
-  pendingDestroy: boolean;
+  /** No anchor for this param right now: hidden and out of reach (or parks on release if held). */
+  parked: boolean;
   axis: 'x' | 'y';
   metresPerUnit: number;
   startValue: number;
@@ -86,8 +86,6 @@ export class ControlsSystem extends createSystem({
   // Dial
   private dialHeld = false;
   private dialStartAngle = 0;
-  private dialLastYaw = 0;
-  private dialAccumDeg = 0;
   private anglePending = false;
   private lastAngleEmit = -1;
 
@@ -105,8 +103,6 @@ export class ControlsSystem extends createSystem({
 
   // Scratch
   private readonly tmpVec = new Vector3();
-  private readonly tmpQuat = new Quaternion();
-  private readonly tmpEuler = new Euler(0, 0, 0, 'YXZ');
 
   init(): void {
     this.coreGeometry = new SphereGeometry(HANDLE_RADIUS, 20, 14);
@@ -142,23 +138,18 @@ export class ControlsSystem extends createSystem({
       }),
     );
 
-    // Dial: track twist from the moment of grab.
+    // Angle knob: measure lift from its base while held.
     this.cleanupFuncs.push(
       this.queries.heldDial.subscribe(
         'qualify',
-        (entity) => {
-          const obj = entity.object3D;
-          if (!obj) return;
+        () => {
           this.dialHeld = true;
           this.dialStartAngle = lab.angleDeg;
-          this.dialLastYaw = this.readYaw(entity);
-          this.dialAccumDeg = 0;
         },
         true,
       ),
       this.queries.heldDial.subscribe('disqualify', () => {
         this.dialHeld = false;
-        this.dialAccumDeg = 0;
         this.flushAngle();
       }),
     );
@@ -232,38 +223,29 @@ export class ControlsSystem extends createSystem({
 
   // ---- Dial ----
 
-  /** World yaw (radians, YXZ order) of the entity's object. */
-  private readYaw(entity: Entity): number {
-    entity.object3D!.getWorldQuaternion(this.tmpQuat);
-    this.tmpEuler.setFromQuaternion(this.tmpQuat, 'YXZ');
-    return this.tmpEuler.y;
-  }
-
   private updateDial(): void {
-    if (this.dialHeld) {
-      for (const entity of this.queries.heldDial.entities) {
-        const obj = entity.object3D;
-        if (!obj) continue;
-        const yaw = this.readYaw(entity);
-        let d = yaw - this.dialLastYaw;
-        if (d > Math.PI) d -= TWO_PI;
-        else if (d < -Math.PI) d += TWO_PI;
-        this.dialLastYaw = yaw;
-        this.dialAccumDeg += d * RAD2DEG;
+    const baseY = DIAL_POSITION[1];
+    for (const entity of this.queries.dial.entities) {
+      const obj = entity.object3D;
+      if (!obj) continue;
+      obj.getWorldPosition(this.tmpVec);
+      // Held: slide only vertically within its travel. Released: spring home.
+      const y = this.dialHeld
+        ? clamp(this.tmpVec.y, baseY - DIAL_TRAVEL, baseY + DIAL_TRAVEL)
+        : this.tmpVec.y + (baseY - this.tmpVec.y) * 0.2;
+      if (this.tmpVec.x !== DIAL_POSITION[0] || this.tmpVec.z !== DIAL_POSITION[2] || this.tmpVec.y !== y) {
+        this.tmpVec.set(DIAL_POSITION[0], y, DIAL_POSITION[2]);
+        setWorldPosition(obj, this.tmpVec);
+        obj.quaternion.identity();
+      }
+      if (!this.dialHeld) continue;
 
-        // Twist only about the vertical axis.
-        this.tmpEuler.set(0, yaw, 0, 'YXZ');
-        this.tmpQuat.setFromEuler(this.tmpEuler);
-        setWorldQuaternion(obj, this.tmpQuat);
-
-        const angle = Math.round(
-          clamp(this.dialStartAngle + this.dialAccumDeg * DIAL_GAIN, ANGLE_LIMITS[0], ANGLE_LIMITS[1]),
-        );
-        if (angle !== lab.angleDeg) {
-          lab.angleDeg = angle;
-          this.anglePending = true;
-        }
-        break; // one dial
+      const angle = Math.round(
+        clamp(this.dialStartAngle + (y - baseY) * DIAL_GAIN, ANGLE_LIMITS[0], ANGLE_LIMITS[1]),
+      );
+      if (angle !== lab.angleDeg) {
+        lab.angleDeg = angle;
+        this.anglePending = true;
       }
     }
     if (this.anglePending && this.clock - this.lastAngleEmit >= ANGLE_EMIT_INTERVAL) this.flushAngle();
@@ -300,7 +282,7 @@ export class ControlsSystem extends createSystem({
       param,
       active: false,
       held: false,
-      pendingDestroy: false,
+      parked: false,
       axis: 'y',
       metresPerUnit: 0,
       startValue: 0,
@@ -311,11 +293,18 @@ export class ControlsSystem extends createSystem({
     return rec;
   }
 
-  private destroyHandle(rec: HandleRecord): void {
-    this.records.delete(rec.param);
-    this.recordsByEntity.delete(rec.entity);
-    // Shared geometry/materials: plain destroy, never dispose resources.
-    rec.entity.destroy();
+  /**
+   * Handles are never destroyed (recycled entity ids mixed up handle params);
+   * an unused one is parked out of sight and reused when its param returns.
+   */
+  private parkHandle(rec: HandleRecord): void {
+    rec.parked = true;
+    const obj = rec.entity.object3D;
+    if (obj) {
+      this.tmpVec.set(0, PARK_Y, 0);
+      setWorldPosition(obj, this.tmpVec);
+      obj.visible = false;
+    }
   }
 
   /** Match handle entities to lab.handleAnchors (event-time, may allocate). */
@@ -324,7 +313,7 @@ export class ControlsSystem extends createSystem({
     for (const anchor of lab.handleAnchors) {
       wanted.add(anchor.param);
       const rec = this.records.get(anchor.param) ?? this.createHandle(anchor.param);
-      rec.pendingDestroy = false;
+      rec.parked = false;
       if (rec.held) continue; // the drag owns its position
       const obj = rec.entity.object3D;
       if (!obj) continue;
@@ -333,8 +322,8 @@ export class ControlsSystem extends createSystem({
     }
     for (const rec of [...this.records.values()]) {
       if (wanted.has(rec.param)) continue;
-      if (rec.held) rec.pendingDestroy = true;
-      else this.destroyHandle(rec);
+      if (rec.held) rec.parked = true;
+      else this.parkHandle(rec);
     }
     this.refreshHandleVisibility();
   }
@@ -343,7 +332,7 @@ export class ControlsSystem extends createSystem({
     const show = !lab.exploded && lab.handleAnchors.length > 0;
     for (const rec of this.records.values()) {
       const obj = rec.entity.object3D;
-      if (obj) obj.visible = show && !rec.pendingDestroy;
+      if (obj) obj.visible = show && !rec.parked;
     }
   }
 
@@ -373,8 +362,8 @@ export class ControlsSystem extends createSystem({
     rec.held = false;
     rec.active = false;
     if (lab.draggingParam === rec.param) lab.draggingParam = null;
-    if (rec.pendingDestroy) {
-      this.destroyHandle(rec);
+    if (rec.parked) {
+      this.parkHandle(rec);
     } else if (!wasActive) {
       // Ignored drag: snap back to the anchor.
       const anchor = findAnchor(rec.param);

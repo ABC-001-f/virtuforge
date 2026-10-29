@@ -344,7 +344,8 @@ export function buildCar(params: CarParams, style: CarStyle): BuiltModel {
   const handles: HandleAnchor[] = [
     { param: 'noseHeight', axis: 'y', local: new Vector3(-0.5 + pr.u[0], pr.y[0], 0) },
     { param: 'roofHeight', axis: 'y', local: new Vector3(-0.5 + params.roofPeak, pr.roofY, 0) },
-    { param: 'roofPeak', axis: 'x', local: new Vector3(-0.5 + params.roofPeak + 0.05, pr.roofY + 0.06, 0) },
+    // Well behind the roof-height handle so the two can't be mistaken for each other.
+    { param: 'roofPeak', axis: 'x', local: new Vector3(-0.5 + params.roofPeak + 0.15, pr.roofY + 0.07, 0) },
     { param: 'tailHeight', axis: 'y', local: new Vector3(-0.5 + pr.u[last], pr.y[last], 0) },
   ];
 

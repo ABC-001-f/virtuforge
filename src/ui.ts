@@ -188,7 +188,10 @@ export class UiSystem extends createSystem({}) {
     lab.modelId = id;
     lab.carParams = isCar(id) ? { ...DEFAULT_CAR_PARAMS[id] } : null;
     lab.exploded = false;
+    // A new model starts level; the angle readout listens for this.
+    lab.angleDeg = 0;
     emit('model');
+    emit('angle');
     this.refreshToggles();
   }
 

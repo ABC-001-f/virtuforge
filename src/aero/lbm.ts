@@ -130,10 +130,13 @@ export class Lbm {
           if (tx < 0 || tx >= nx) continue;      // inlet/outlet columns are rebuilt below
           const t = ty * nx + tx;
           if (solid[t]) {
-            // Bounce back; the reversed momentum is the force on the body.
+            // Bounce back; the reversed momentum is the force on the body. Measured
+            // against still air (W[i] at density 1) so ambient pressure doesn't count:
+            // a car resting on the floor would otherwise be "pushed down" by it.
             f2[OPP[i] * n + c] = post;
-            fx += 2 * post * CX[i];
-            fy += 2 * post * CY[i];
+            const gauge = post - W[i];
+            fx += 2 * gauge * CX[i];
+            fy += 2 * gauge * CY[i];
           } else {
             f2[dir * n + t] = post;
           }

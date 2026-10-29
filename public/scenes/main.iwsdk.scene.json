@@ -76,7 +76,7 @@
       "components": {
         "AngleDial": {},
         "RayInteractable": {},
-        "DistanceGrabbable": { "movementMode": "RotateAtSource" }
+        "DistanceGrabbable": { "movementMode": "MoveFromTarget" }
       }
     },
     {
@@ -85,7 +85,7 @@
       "metadata": { "iwsdk.validation": { "allowFloating": true } },
       "content": { "type": "asset", "asset": "control-panel" },
       "transform": {
-        "position": [-0.82, 1.12, -0.42],
+        "position": [-0.82, 1.22, -0.42],
         "rotationDeg": [-4, 63, 0],
         "scale": 0.1
       },
@@ -97,7 +97,7 @@
       "metadata": { "iwsdk.validation": { "allowFloating": true } },
       "content": { "type": "asset", "asset": "results-panel" },
       "transform": {
-        "position": [0.82, 1.12, -0.42],
+        "position": [0.82, 1.22, -0.42],
         "rotationDeg": [-4, -63, 0],
         "scale": 0.1
       },
