@@ -1,0 +1,202 @@
+<!--
+  AeroLab control panel. UiSystem (src/ui.ts) wires every button and writes the
+  readouts. Model buttons switch variant to show the selection; wind-on-button
+  and wind-off-button swap display. Lucide icons: Wind, Pause, Eye, Palette,
+  Layers, Save, Trash2, RotateCcw.
+-->
+<style>
+  .root {
+    flex-direction: column;
+    width: 480px;
+  }
+
+  .content {
+    flex-direction: column;
+    gap: 4px;
+    padding-top: 20px;
+    padding-left: 22px;
+    padding-right: 22px;
+    padding-bottom: 10px;
+  }
+
+  .eyebrow {
+    color: #0a7f99;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 1.4px;
+  }
+
+  .eyebrow:dark {
+    color: #4fd8ff;
+  }
+
+  .model {
+    color: #1c1d20;
+    font-size: 28px;
+    font-weight: 700;
+  }
+
+  .model:dark {
+    color: #fafaf7;
+  }
+
+  .status {
+    color: #5a6478;
+    font-size: 14px;
+  }
+
+  .status:dark {
+    color: #9aa6bf;
+  }
+
+  .section {
+    color: #5a6478;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    padding-left: 22px;
+    padding-right: 22px;
+    padding-bottom: 6px;
+  }
+
+  .section:dark {
+    color: #8a96b0;
+  }
+
+  .row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-left: 22px;
+    padding-right: 22px;
+    padding-bottom: 10px;
+  }
+
+  .readouts {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-left: 22px;
+    padding-right: 22px;
+    padding-bottom: 12px;
+  }
+
+  .readout {
+    width: 213px;
+    color: #1c1d20;
+    font-size: 18px;
+  }
+
+  .readout:dark {
+    color: #dddfe3;
+  }
+
+  .metric {
+    width: 213px;
+    color: #b45f00;
+    font-size: 20px;
+    font-weight: 700;
+  }
+
+  .metric:dark {
+    color: #ffb347;
+  }
+
+  .note {
+    color: #5a6478;
+    font-size: 12px;
+    padding-left: 22px;
+    padding-right: 22px;
+    padding-bottom: 16px;
+  }
+
+  .note:dark {
+    color: #8a96b0;
+  }
+</style>
+<Panel class="root">
+  <div class="content">
+    <div class="eyebrow">VIRTUFORGE - AEROLAB</div>
+    <span id="model-text" class="model">EV Sedan</span>
+    <span id="status-text" class="status">Ready</span>
+  </div>
+
+  <div class="section">MODEL</div>
+  <div class="row">
+    <Button id="model-ev" variant="secondary">
+      <ButtonLabel>EV</ButtonLabel>
+    </Button>
+    <Button id="model-sport" variant="secondary">
+      <ButtonLabel>Sport</ButtonLabel>
+    </Button>
+    <Button id="model-van" variant="secondary">
+      <ButtonLabel>Van</ButtonLabel>
+    </Button>
+    <Button id="model-airplane" variant="secondary">
+      <ButtonLabel>Plane</ButtonLabel>
+    </Button>
+  </div>
+  <div class="row">
+    <Button id="model-drone" variant="secondary">
+      <ButtonLabel>Drone</ButtonLabel>
+    </Button>
+    <Button id="model-wing" variant="secondary">
+      <ButtonLabel>Wing</ButtonLabel>
+    </Button>
+    <Button id="model-toycar" variant="secondary">
+      <ButtonLabel>Toy Car</ButtonLabel>
+    </Button>
+  </div>
+
+  <div class="section">LIVE READOUT</div>
+  <div class="readouts">
+    <span id="speed-text" class="readout">Wind 90 km/h</span>
+    <span id="angle-text" class="readout">Angle 0 deg</span>
+    <span id="cd-text" class="metric">Cd 0.00</span>
+    <span id="cl-text" class="metric">Cl 0.00</span>
+    <span id="re-text" class="readout">Re 0</span>
+    <span id="view-text" class="readout">View: Smoke</span>
+  </div>
+
+  <div class="section">TUNNEL</div>
+  <div class="row">
+    <Button id="wind-on-button" style="display: none">
+      <ButtonIcon><Wind></Wind></ButtonIcon>
+      <ButtonLabel>Wind on</ButtonLabel>
+    </Button>
+    <Button id="wind-off-button" variant="secondary">
+      <ButtonIcon><Pause></Pause></ButtonIcon>
+      <ButtonLabel>Wind off</ButtonLabel>
+    </Button>
+    <Button id="view-button" variant="secondary">
+      <ButtonIcon><Eye></Eye></ButtonIcon>
+      <ButtonLabel>View</ButtonLabel>
+    </Button>
+    <Button id="skin-button" variant="secondary">
+      <ButtonIcon><Palette></Palette></ButtonIcon>
+      <ButtonLabel>Skin</ButtonLabel>
+    </Button>
+    <Button id="explode-button" variant="secondary">
+      <ButtonIcon><Layers></Layers></ButtonIcon>
+      <ButtonLabel>Explode</ButtonLabel>
+    </Button>
+  </div>
+
+  <div class="section">COMPARE</div>
+  <div class="row">
+    <Button id="save-a-button">
+      <ButtonIcon><Save></Save></ButtonIcon>
+      <ButtonLabel>Save A</ButtonLabel>
+    </Button>
+    <Button id="clear-a-button" variant="secondary">
+      <ButtonIcon><Trash2></Trash2></ButtonIcon>
+      <ButtonLabel>Clear A</ButtonLabel>
+    </Button>
+    <Button id="reset-shape-button" variant="secondary">
+      <ButtonIcon><RotateCcw></RotateCcw></ButtonIcon>
+      <ButtonLabel>Reset shape</ButtonLabel>
+    </Button>
+  </div>
+
+  <span class="note">2D educational approximation for comparing designs - not validated CFD.</span>
+</Panel>

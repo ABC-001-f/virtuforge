@@ -1,36 +1,38 @@
 <!--
-  Panel, Button, ButtonIcon, and ButtonLabel come from the bundled Horizon kit.
-  RectangleGoggles and LogIn are bundled Lucide icon components. The :dark
-  styles apply because iwsdk.config.json prefers the dark color scheme.
+  AeroLab intro panel. Panel, Button, ButtonIcon and ButtonLabel come from the
+  bundled Horizon kit; RectangleGoggles and LogIn are Lucide icons. UiSystem
+  shows Enter XR in the browser and Exit in immersive mode.
 -->
 <style>
   .panel-root {
     flex-direction: column;
-    width: 420px;
+    width: 440px;
   }
 
   .panel-content {
     flex-direction: column;
     gap: 7px;
-    padding: 22px;
+    padding-top: 22px;
+    padding-left: 22px;
+    padding-right: 22px;
+    padding-bottom: 16px;
   }
 
   .eyebrow {
-    color: #6b5a00;
+    color: #0a7f99;
     font-size: 14px;
     font-weight: 700;
     letter-spacing: 1.4px;
   }
 
   .eyebrow:dark {
-    color: #f5d90a;
+    color: #4fd8ff;
   }
 
   .heading {
     color: #1c1d20;
-    font-size: 30px;
+    font-size: 32px;
     font-weight: 700;
-    line-height: 36px;
   }
 
   .heading:dark {
@@ -39,12 +41,21 @@
 
   .body {
     color: #3a3b40;
-    font-size: 20px;
-    line-height: 27px;
+    font-size: 17px;
   }
 
   .body:dark {
     color: #dddfe3;
+  }
+
+  .note {
+    color: #5a6478;
+    font-size: 12px;
+    margin-top: 4px;
+  }
+
+  .note:dark {
+    color: #8a96b0;
   }
 
   .button {
@@ -60,10 +71,13 @@
 </style>
 <Panel class="panel-root">
   <div class="panel-content">
-    <div class="eyebrow">IMMERSIVE WEB SDK</div>
-    <div class="heading">Hello, Immersive Web!</div>
-    <div class="body">Try each station around you,</div>
-    <div class="body">then make this scene your own.</div>
+    <div class="eyebrow">VIRTUFORGE - HANDS-FIRST WIND TUNNEL</div>
+    <div class="heading">AeroLab</div>
+    <div class="body">1. Pinch a model button to load a car, plane, drone or wing.</div>
+    <div class="body">2. Grab the lever to set wind speed; twist the dial for angle.</div>
+    <div class="body">3. Pull the glowing handles to reshape the car.</div>
+    <div class="body">4. Save A, change the design, then compare A vs B.</div>
+    <div class="note">A 2D educational approximation for comparing designs, not validated CFD.</div>
   </div>
   <Button id="xr-button" class="button">
     <ButtonIcon>

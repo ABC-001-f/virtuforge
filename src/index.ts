@@ -1,19 +1,19 @@
 /**
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
+ * VIRTUFORGE: AeroLab entry point - a hands-first WebXR wind tunnel.
+ * Creates the IWSDK world from the project config and registers the lab systems.
  */
 
 import { World } from '@iwsdk/core';
 import projectOptions from 'virtual:iwsdk-project';
-import { PanelSystem } from './panel.js';
-import { RobotSystem } from './robot.js';
+import { ControlsSystem } from './controls.js';
+import { UiSystem } from './ui.js';
+import { WindTunnelSystem } from './wind-tunnel.js';
 
 World.create(
   document.getElementById('scene-container') as HTMLDivElement,
   projectOptions,
 ).then((world) => {
-  world.registerSystem(RobotSystem);
-  world.registerSystem(PanelSystem);
+  world.registerSystem(WindTunnelSystem);
+  world.registerSystem(ControlsSystem);
+  world.registerSystem(UiSystem);
 });

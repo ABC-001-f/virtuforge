@@ -1,0 +1,115 @@
+<!--
+  AeroLab compare panel. UiSystem (src/ui.ts) writes a-text / b-text, sets the
+  a-bar / b-bar widths (0..300px), the delta line, the multi-line test report
+  and the model credit line.
+-->
+<style>
+  .root {
+    flex-direction: column;
+    width: 460px;
+  }
+
+  .content {
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 20px;
+    padding-left: 22px;
+    padding-right: 22px;
+    padding-bottom: 18px;
+  }
+
+  .heading {
+    color: #0a7f99;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 1.4px;
+  }
+
+  .heading:dark {
+    color: #4fd8ff;
+  }
+
+  .label {
+    color: #1c1d20;
+    font-size: 16px;
+  }
+
+  .label:dark {
+    color: #dddfe3;
+  }
+
+  .track {
+    width: 300px;
+    height: 14px;
+    border-radius: 7px;
+    background-color: #d7dbe3;
+    margin-bottom: 6px;
+  }
+
+  .track:dark {
+    background-color: #2a2f3a;
+  }
+
+  .bar-a {
+    width: 0px;
+    height: 14px;
+    border-radius: 7px;
+    background-color: #8a96b0;
+  }
+
+  .bar-b {
+    width: 0px;
+    height: 14px;
+    border-radius: 7px;
+    background-color: #f08a24;
+  }
+
+  .delta {
+    color: #1f8f50;
+    font-size: 22px;
+    font-weight: 700;
+    margin-top: 4px;
+    margin-bottom: 6px;
+  }
+
+  .delta:dark {
+    color: #39ff88;
+  }
+
+  .report {
+    color: #3a3b40;
+    font-size: 13px;
+    line-height: 1.35;
+    white-space: pre-line;
+  }
+
+  .report:dark {
+    color: #b9c2d6;
+  }
+
+  .credit {
+    color: #5a6478;
+    font-size: 11px;
+    margin-top: 6px;
+  }
+
+  .credit:dark {
+    color: #8a96b0;
+  }
+</style>
+<Panel class="root">
+  <div class="content">
+    <div class="heading">COMPARE A vs B</div>
+    <span id="a-text" class="label">A: not saved - press Save A</span>
+    <div class="track">
+      <div id="a-bar" class="bar-a"></div>
+    </div>
+    <span id="b-text" class="label">B (current): Cd 0.00</span>
+    <div class="track">
+      <div id="b-bar" class="bar-b"></div>
+    </div>
+    <span id="delta-text" class="delta">Save A, then change the design</span>
+    <span id="report-text" class="report">Test report</span>
+    <span id="credit-text" class="credit" style="display: none">Credit</span>
+  </div>
+</Panel>
