@@ -123,7 +123,7 @@ export class WindTunnelSystem extends createSystem({}) {
     tunnelObject.add(this.flowViz.object);
     this.flowViz.setMode(lab.view);
 
-    this.skin = new PressureSkin(this.flowViz.pressureTexture);
+    this.skin = new PressureSkin(this.flowViz.skinTexture);
 
     this.solver = new SolverClient();
     this.solver.onFrame = (frame) => this.onFrame(frame);

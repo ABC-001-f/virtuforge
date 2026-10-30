@@ -74,7 +74,7 @@
     <div class="eyebrow">VIRTUFORGE - HANDS-FIRST WIND TUNNEL</div>
     <div class="heading">AeroLab</div>
     <div class="body">1. Pinch a model button to load a car, plane, drone or wing.</div>
-    <div class="body">2. Grab the lever to set wind speed; twist the dial for angle.</div>
+    <div class="body">2. Slide the lever for wind speed; pinch the knob and lift to tilt.</div>
     <div class="body">3. Pull the glowing handles to reshape the car.</div>
     <div class="body">4. Save A, change the design, then compare A vs B.</div>
     <div class="note">A 2D educational approximation for comparing designs, not validated CFD.</div>

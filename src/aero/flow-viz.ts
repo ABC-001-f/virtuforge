@@ -60,9 +60,21 @@ export class FlowViz {
   readonly object: Group;
   readonly speedTexture: DataTexture;
   readonly pressureTexture: DataTexture;
+  /**
+   * Pressure for the model's surface: like pressureTexture, but every solid cell
+   * carries the colour of the nearest air cell, so a skin sampling the body's own
+   * cells shows the pressure of the air touching it instead of the dark interior.
+   */
+  readonly skinTexture: DataTexture;
 
   private readonly speedData: Uint8Array;
   private readonly pressureData: Uint8Array;
+  private readonly skinData: Uint8Array;
+  /** For each cell, the index of the nearest fluid cell (itself if fluid); rebuilt when the mask changes. */
+  private readonly nearestFluid = new Int32Array(N_CELLS);
+  private readonly bfsQueue = new Int32Array(N_CELLS);
+  private maskHash = 0;
+  private maskSolidCount = -1;
   private readonly fieldMaterial: MeshBasicMaterial;
   private readonly fieldGeometry: PlaneGeometry;
   private readonly streakGeometry: BufferGeometry;
@@ -100,6 +112,8 @@ export class FlowViz {
     this.pressureData = new Uint8Array(N_CELLS * 4);
     this.speedTexture = makeTexture(this.speedData);
     this.pressureTexture = makeTexture(this.pressureData);
+    this.skinData = new Uint8Array(N_CELLS * 4);
+    this.skinTexture = makeTexture(this.skinData);
     this.fillUniform();
 
     // ---- Back-wall field plane ----
@@ -199,6 +213,56 @@ export class FlowViz {
     }
     this.speedTexture.needsUpdate = true;
     this.pressureTexture.needsUpdate = true;
+
+    this.updateNearestFluid(solid);
+    const near = this.nearestFluid;
+    const kd = this.skinData;
+    for (let c = 0; c < N_CELLS; c++) {
+      const o = c * 4;
+      const s = near[c] * 4;
+      kd[o] = pd[s];
+      kd[o + 1] = pd[s + 1];
+      kd[o + 2] = pd[s + 2];
+    }
+    this.skinTexture.needsUpdate = true;
+  }
+
+  /** Multi-source flood fill from every fluid cell into the solid ones; skipped while the mask is unchanged. */
+  private updateNearestFluid(solid: Uint8Array): void {
+    let hash = 0;
+    let count = 0;
+    for (let c = 0; c < N_CELLS; c++) {
+      if (solid[c]) {
+        hash = (hash * 31 + c) | 0;
+        count++;
+      }
+    }
+    if (hash === this.maskHash && count === this.maskSolidCount) return;
+    this.maskHash = hash;
+    this.maskSolidCount = count;
+
+    const near = this.nearestFluid;
+    const queue = this.bfsQueue;
+    let head = 0;
+    let tail = 0;
+    for (let c = 0; c < N_CELLS; c++) {
+      if (solid[c]) {
+        near[c] = -1;
+      } else {
+        near[c] = c;
+        queue[tail++] = c;
+      }
+    }
+    while (head < tail) {
+      const c = queue[head++];
+      const i = c % GRID_NX;
+      if (i > 0 && near[c - 1] < 0) { near[c - 1] = near[c]; queue[tail++] = c - 1; }
+      if (i < GRID_NX - 1 && near[c + 1] < 0) { near[c + 1] = near[c]; queue[tail++] = c + 1; }
+      if (c >= GRID_NX && near[c - GRID_NX] < 0) { near[c - GRID_NX] = near[c]; queue[tail++] = c - GRID_NX; }
+      if (c < N_CELLS - GRID_NX && near[c + GRID_NX] < 0) { near[c + GRID_NX] = near[c]; queue[tail++] = c + GRID_NX; }
+    }
+    // A fully solid grid can't happen (inlet/outlet columns are kept clear), but never index -1.
+    for (let c = 0; c < N_CELLS; c++) if (near[c] < 0) near[c] = 0;
   }
 
   /** Advect the smoke streaks; call every frame. */
@@ -225,6 +289,7 @@ export class FlowViz {
     this.streakMaterial.dispose();
     this.speedTexture.dispose();
     this.pressureTexture.dispose();
+    this.skinTexture.dispose();
     this.ux = this.uy = null;
     this.solid = null;
   }
@@ -325,9 +390,11 @@ export class FlowViz {
       const o = c * 4;
       speedColor(1 / SPEED_NORM, this.speedData, o);
       divergingColor(0, this.pressureData, o);
+      divergingColor(0, this.skinData, o);
     }
     this.speedTexture.needsUpdate = true;
     this.pressureTexture.needsUpdate = true;
+    this.skinTexture.needsUpdate = true;
   }
 }
 
