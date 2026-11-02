@@ -4,7 +4,7 @@
 
 AeroLab is the first module of VIRTUFORGE, a virtual space where engineers and designers test product ideas before paying for physical prototypes. It runs in the browser on Meta Quest and Meta VR Glasses (WebXR), and needs no controllers.
 
-**Try it:** https://abc-001-f.github.io/virtuforge/. Open it in the Quest Browser or on Meta VR Glasses and press **Enter XR**. On a desktop browser, the built-in emulator lets you try it with keyboard and mouse.
+**Try it:** https://abc-001-f.github.io/virtuforge/. Open it in the Quest Browser or on Meta VR Glasses and press **Enter XR**. No headset? Run it locally with `npm run dev` (see below), which includes Meta's Quest emulator, or install the [Immersive Web Emulator](https://chromewebstore.google.com/detail/immersive-web-emulator/cgffilbpcibhmcfbgggfhfolhkfbhmik) Chrome extension and open the live link.
 
 ![VIRTUFORGE: AeroLab](docs/thumbnail.png)
 
