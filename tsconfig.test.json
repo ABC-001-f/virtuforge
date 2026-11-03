@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": ".test-out",
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": [
+    "src/aero/catalog.ts",
+    "src/aero/gltf-pack.ts",
+    "src/aero/lab-state.ts",
+    "src/aero/lbm.ts",
+    "src/aero/tunnel.ts",
+    "src/aero/types.ts",
+    "test/**/*.ts"
+  ]
+}

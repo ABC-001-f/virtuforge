@@ -13,17 +13,19 @@ import {
   Vector3,
   type Entity,
 } from '@iwsdk/core';
-import { AngleDial, ShapeHandle, WindLever } from './aero-components.js';
-import { ANGLE_LIMITS, emit, lab, on, type HandleWorld } from './aero/lab-state.js';
+import { AngleDial, PartHandle, ShapeHandle, WindLever } from './aero-components.js';
+import { ANGLE_LIMITS, emit, lab, on, type HandleWorld, type PartWorld } from './aero/lab-state.js';
 import { DIAL_POSITION, LEVER_RAIL, MAX_WIND_KMH, MIN_WIND_KMH } from './aero/tunnel.js';
 import { CAR_PARAM_LIMITS, type CarParam } from './aero/types.js';
 
 /**
  * Hand controls: the wind-speed lever (a knob that slides along LEVER_RAIL),
  * the angle knob (pinch it and lift your hand to raise the nose, lower it to
- * drop the nose; it springs back to its base on release) and the shape
- * handles (grabbable spheres on the parametric car, one per lab.handleAnchors
- * entry, each sliding along one world axis).
+ * drop the nose; it springs back to its base on release), the shape handles
+ * (grabbable spheres on the parametric car, one per lab.handleAnchors entry,
+ * each sliding along one world axis) and the part handles (orange spheres on
+ * every movable part while part-edit mode is on, one per lab.partAnchors
+ * entry, dragged freely in the tunnel's x/y plane).
  *
  * GrabSystem runs at priority -3, so this system (default priority 0) runs
  * after it each frame and its rail / axis constraints win over the raw grab.
@@ -33,6 +35,7 @@ import { CAR_PARAM_LIMITS, type CarParam } from './aero/types.js';
 const WIND_EMIT_INTERVAL = 0.1;   // s, ~10 Hz
 const ANGLE_EMIT_INTERVAL = 0.1;  // s, ~10 Hz
 const SHAPE_EMIT_INTERVAL = 0.125; // s, ~8 Hz
+const PART_EMIT_INTERVAL = 0.1;   // s, ~10 Hz
 /** Degrees of model angle per metre the angle knob is lifted (10 cm = 20 deg). */
 const DIAL_GAIN = 200;
 /** How far the angle knob can travel up or down from its base. */
@@ -40,6 +43,8 @@ const DIAL_TRAVEL = 0.1;
 const HOVER_SCALE = 1.3;
 const HANDLE_RADIUS = 0.015;
 const HALO_RADIUS = 0.022;
+const SHAPE_COLOR = 0x4ff3ff;
+const PART_COLOR = 0xffb347;
 /** Where unused handles wait, far below the floor (out of sight and out of ray reach). */
 const PARK_Y = -10;
 
@@ -57,6 +62,15 @@ interface HandleRecord {
   start: Vector3;
 }
 
+interface PartRecord {
+  entity: Entity;
+  index: number;
+  active: boolean;
+  held: boolean;
+  parked: boolean;
+  start: Vector3;
+}
+
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
@@ -69,6 +83,14 @@ function findAnchor(param: CarParam): HandleWorld | null {
   return null;
 }
 
+function findPartAnchor(index: number): PartWorld | null {
+  const anchors = lab.partAnchors;
+  for (let i = 0; i < anchors.length; i++) {
+    if (anchors[i].index === index) return anchors[i];
+  }
+  return null;
+}
+
 export class ControlsSystem extends createSystem({
   lever: { required: [WindLever] },
   heldLever: { required: [WindLever, Grabbed] },
@@ -76,6 +98,8 @@ export class ControlsSystem extends createSystem({
   heldDial: { required: [AngleDial, Grabbed] },
   handles: { required: [ShapeHandle] },
   heldHandles: { required: [ShapeHandle, Grabbed] },
+  partHandles: { required: [PartHandle] },
+  heldParts: { required: [PartHandle, Grabbed] },
 }) {
   private clock = 0;
 
@@ -89,17 +113,25 @@ export class ControlsSystem extends createSystem({
   private anglePending = false;
   private lastAngleEmit = -1;
 
-  // Handles
+  // Shape handles
   private readonly records = new Map<CarParam, HandleRecord>();
   private readonly recordsByEntity = new Map<Entity, HandleRecord>();
   private shapePending = false;
   private lastShapeEmit = -1;
+
+  // Part handles
+  private readonly partRecords = new Map<number, PartRecord>();
+  private readonly partsByEntity = new Map<Entity, PartRecord>();
+  private partPending = false;
+  private lastPartEmit = -1;
 
   // Shared handle resources (never disposed per entity).
   private coreGeometry!: SphereGeometry;
   private haloGeometry!: SphereGeometry;
   private coreMaterial!: MeshBasicMaterial;
   private haloMaterial!: MeshBasicMaterial;
+  private partCoreMaterial!: MeshBasicMaterial;
+  private partHaloMaterial!: MeshBasicMaterial;
 
   // Scratch
   private readonly tmpVec = new Vector3();
@@ -107,9 +139,17 @@ export class ControlsSystem extends createSystem({
   init(): void {
     this.coreGeometry = new SphereGeometry(HANDLE_RADIUS, 20, 14);
     this.haloGeometry = new SphereGeometry(HALO_RADIUS, 20, 14);
-    this.coreMaterial = new MeshBasicMaterial({ color: 0x4ff3ff });
+    this.coreMaterial = new MeshBasicMaterial({ color: SHAPE_COLOR });
     this.haloMaterial = new MeshBasicMaterial({
-      color: 0x4ff3ff,
+      color: SHAPE_COLOR,
+      transparent: true,
+      opacity: 0.18,
+      depthWrite: false,
+      blending: AdditiveBlending,
+    });
+    this.partCoreMaterial = new MeshBasicMaterial({ color: PART_COLOR });
+    this.partHaloMaterial = new MeshBasicMaterial({
+      color: PART_COLOR,
       transparent: true,
       opacity: 0.18,
       depthWrite: false,
@@ -163,18 +203,36 @@ export class ControlsSystem extends createSystem({
       ),
       this.queries.heldHandles.subscribe('disqualify', (entity) => this.endHandleDrag(entity)),
       on('handles', () => this.syncHandles()),
-      on('explode', () => this.refreshHandleVisibility()),
     );
     this.syncHandles();
 
+    // Part handles.
+    this.cleanupFuncs.push(
+      this.queries.heldParts.subscribe(
+        'qualify',
+        (entity) => this.beginPartDrag(entity),
+        true,
+      ),
+      this.queries.heldParts.subscribe('disqualify', (entity) => this.endPartDrag(entity)),
+      on('parts', () => this.syncParts()),
+      on('partEdit', () => this.refreshVisibility()),
+      on('explode', () => this.refreshVisibility()),
+    );
+    this.syncParts();
+
     this.cleanupFuncs.push(() => {
       for (const rec of this.records.values()) rec.entity.destroy();
+      for (const rec of this.partRecords.values()) rec.entity.destroy();
       this.records.clear();
       this.recordsByEntity.clear();
+      this.partRecords.clear();
+      this.partsByEntity.clear();
       this.coreGeometry.dispose();
       this.haloGeometry.dispose();
       this.coreMaterial.dispose();
       this.haloMaterial.dispose();
+      this.partCoreMaterial.dispose();
+      this.partHaloMaterial.dispose();
     });
   }
 
@@ -183,6 +241,7 @@ export class ControlsSystem extends createSystem({
     this.updateLever();
     this.updateDial();
     this.updateHandles();
+    this.updateParts();
   }
 
   // ---- Lever ----
@@ -258,24 +317,64 @@ export class ControlsSystem extends createSystem({
     emit('angle');
   }
 
-  // ---- Shape handles ----
+  // ---- Handle spheres (shared by shape and part handles) ----
 
-  private createHandle(param: CarParam): HandleRecord {
-    const core = new Mesh(this.coreGeometry, this.coreMaterial);
-    core.userData.noSilhouette = true;
-    const halo = new Mesh(this.haloGeometry, this.haloMaterial);
-    halo.userData.noSilhouette = true;
-    halo.renderOrder = 2;
-    core.add(halo);
+  private createSphere(core: MeshBasicMaterial, halo: MeshBasicMaterial): Mesh {
+    const mesh = new Mesh(this.coreGeometry, core);
+    mesh.userData.noSilhouette = true;
+    const glow = new Mesh(this.haloGeometry, halo);
+    glow.userData.noSilhouette = true;
+    glow.renderOrder = 2;
+    mesh.add(glow);
+    return mesh;
+  }
 
-    const entity = this.world.createTransformEntity(core);
-    entity.addComponent(ShapeHandle, { param });
+  private makeGrabbable(entity: Entity): void {
     entity.addComponent(RayInteractable);
     entity.addComponent(DistanceGrabbable, {
       movementMode: MovementMode.MoveFromTarget,
       rotate: false,
       scale: false,
     });
+  }
+
+  private park(entity: Entity): void {
+    const obj = entity.object3D;
+    if (!obj) return;
+    this.tmpVec.set(0, PARK_Y, 0);
+    setWorldPosition(obj, this.tmpVec);
+    obj.visible = false;
+  }
+
+  private place(entity: Entity, world: [number, number, number]): void {
+    const obj = entity.object3D;
+    if (!obj) return;
+    this.tmpVec.set(world[0], world[1], world[2]);
+    setWorldPosition(obj, this.tmpVec);
+  }
+
+  /** Shape handles show outside part-edit mode, part handles inside it; neither while exploded. */
+  private refreshVisibility(): void {
+    const showShape = !lab.exploded && !lab.partEditing && lab.handleAnchors.length > 0;
+    for (const rec of this.records.values()) {
+      const obj = rec.entity.object3D;
+      if (obj) obj.visible = showShape && !rec.parked;
+    }
+    const showParts = !lab.exploded && lab.partEditing;
+    for (const rec of this.partRecords.values()) {
+      const obj = rec.entity.object3D;
+      if (obj) obj.visible = showParts && !rec.parked;
+    }
+  }
+
+  // ---- Shape handles ----
+
+  private createHandle(param: CarParam): HandleRecord {
+    const sphere = this.createSphere(this.coreMaterial, this.haloMaterial);
+    sphere.name = `shape-handle-${param}`;
+    const entity = this.world.createTransformEntity(sphere);
+    entity.addComponent(ShapeHandle, { param });
+    this.makeGrabbable(entity);
 
     const rec: HandleRecord = {
       entity,
@@ -299,12 +398,7 @@ export class ControlsSystem extends createSystem({
    */
   private parkHandle(rec: HandleRecord): void {
     rec.parked = true;
-    const obj = rec.entity.object3D;
-    if (obj) {
-      this.tmpVec.set(0, PARK_Y, 0);
-      setWorldPosition(obj, this.tmpVec);
-      obj.visible = false;
-    }
+    this.park(rec.entity);
   }
 
   /** Match handle entities to lab.handleAnchors (event-time, may allocate). */
@@ -315,25 +409,14 @@ export class ControlsSystem extends createSystem({
       const rec = this.records.get(anchor.param) ?? this.createHandle(anchor.param);
       rec.parked = false;
       if (rec.held) continue; // the drag owns its position
-      const obj = rec.entity.object3D;
-      if (!obj) continue;
-      this.tmpVec.set(anchor.world[0], anchor.world[1], anchor.world[2]);
-      setWorldPosition(obj, this.tmpVec);
+      this.place(rec.entity, anchor.world);
     }
     for (const rec of [...this.records.values()]) {
       if (wanted.has(rec.param)) continue;
       if (rec.held) rec.parked = true;
       else this.parkHandle(rec);
     }
-    this.refreshHandleVisibility();
-  }
-
-  private refreshHandleVisibility(): void {
-    const show = !lab.exploded && lab.handleAnchors.length > 0;
-    for (const rec of this.records.values()) {
-      const obj = rec.entity.object3D;
-      if (obj) obj.visible = show && !rec.parked;
-    }
+    this.refreshVisibility();
   }
 
   private beginHandleDrag(entity: Entity): void {
@@ -344,7 +427,7 @@ export class ControlsSystem extends createSystem({
     obj.getWorldPosition(rec.start);
     const anchor = findAnchor(rec.param);
     const params = lab.carParams;
-    if (!anchor || !params || anchor.metresPerUnit === 0 || lab.exploded) {
+    if (!anchor || !params || anchor.metresPerUnit === 0 || lab.exploded || lab.partEditing) {
       rec.active = false;
       return;
     }
@@ -367,11 +450,7 @@ export class ControlsSystem extends createSystem({
     } else if (!wasActive) {
       // Ignored drag: snap back to the anchor.
       const anchor = findAnchor(rec.param);
-      const obj = entity.object3D;
-      if (anchor && obj) {
-        this.tmpVec.set(anchor.world[0], anchor.world[1], anchor.world[2]);
-        setWorldPosition(obj, this.tmpVec);
-      }
+      if (anchor) this.place(entity, anchor.world);
     }
     if (wasActive) {
       // Final value; WindTunnelSystem rebuilds and republishes the anchors.
@@ -421,6 +500,124 @@ export class ControlsSystem extends createSystem({
       this.shapePending = false;
       this.lastShapeEmit = this.clock;
       emit('shape');
+    }
+  }
+
+  // ---- Part handles ----
+
+  private createPartHandle(index: number): PartRecord {
+    const sphere = this.createSphere(this.partCoreMaterial, this.partHaloMaterial);
+    sphere.name = `part-handle-${index}`;
+    const entity = this.world.createTransformEntity(sphere);
+    entity.addComponent(PartHandle, { index });
+    this.makeGrabbable(entity);
+    const rec: PartRecord = { entity, index, active: false, held: false, parked: false, start: new Vector3() };
+    this.partRecords.set(index, rec);
+    this.partsByEntity.set(entity, rec);
+    return rec;
+  }
+
+  private parkPart(rec: PartRecord): void {
+    rec.parked = true;
+    this.park(rec.entity);
+  }
+
+  /** Match part-handle entities to lab.partAnchors (event-time, may allocate). */
+  private syncParts(): void {
+    const wanted = new Set<number>();
+    for (const anchor of lab.partAnchors) {
+      if (!anchor.handle) continue;
+      wanted.add(anchor.index);
+      const rec = this.partRecords.get(anchor.index) ?? this.createPartHandle(anchor.index);
+      rec.parked = false;
+      if (rec.held) continue;
+      this.place(rec.entity, anchor.world);
+    }
+    for (const rec of [...this.partRecords.values()]) {
+      if (wanted.has(rec.index)) continue;
+      if (rec.held) rec.parked = true;
+      else this.parkPart(rec);
+    }
+    this.refreshVisibility();
+  }
+
+  private beginPartDrag(entity: Entity): void {
+    const rec = this.partsByEntity.get(entity);
+    const obj = entity.object3D;
+    if (!rec || !obj) return;
+    rec.held = true;
+    obj.getWorldPosition(rec.start);
+    const anchor = findPartAnchor(rec.index);
+    if (!anchor || !anchor.handle || lab.exploded || !lab.partEditing || lab.draggingPart !== null) {
+      rec.active = false;
+      return;
+    }
+    rec.active = true;
+    lab.draggingPart = rec.index;
+  }
+
+  private endPartDrag(entity: Entity): void {
+    const rec = this.partsByEntity.get(entity);
+    if (!rec) return;
+    const wasActive = rec.active;
+    rec.held = false;
+    rec.active = false;
+    if (rec.parked) {
+      this.parkPart(rec);
+    } else if (!wasActive) {
+      const anchor = findPartAnchor(rec.index);
+      if (anchor) this.place(entity, anchor.world);
+    }
+    if (wasActive && lab.draggingPart === rec.index) {
+      // Final position, then tell WindTunnelSystem the drag is over so it republishes the anchor.
+      const obj = entity.object3D;
+      if (obj) {
+        obj.getWorldPosition(this.tmpVec);
+        lab.partDragWorld = [this.tmpVec.x, this.tmpVec.y, rec.start.z];
+      }
+      this.partPending = false;
+      this.lastPartEmit = this.clock;
+      emit('partMove');
+      lab.draggingPart = null;
+      emit('partMove');
+    }
+  }
+
+  private updateParts(): void {
+    for (const entity of this.queries.partHandles.entities) {
+      const obj = entity.object3D;
+      if (!obj) continue;
+      const s = entity.hasComponent(Hovered) || entity.hasComponent(Grabbed) ? HOVER_SCALE : 1;
+      if (obj.scale.x !== s) obj.scale.setScalar(s);
+    }
+
+    for (const entity of this.queries.heldParts.entities) {
+      const rec = this.partsByEntity.get(entity);
+      const obj = entity.object3D;
+      if (!rec || !obj) continue;
+      if (!rec.active) {
+        setWorldPosition(obj, rec.start);
+        continue;
+      }
+      // Free in the tunnel plane (x = along the flow, y = up); depth stays put.
+      obj.getWorldPosition(this.tmpVec);
+      if (this.tmpVec.z !== rec.start.z) {
+        this.tmpVec.z = rec.start.z;
+        setWorldPosition(obj, this.tmpVec);
+      }
+      const w = lab.partDragWorld;
+      if (w[0] !== this.tmpVec.x || w[1] !== this.tmpVec.y || w[2] !== this.tmpVec.z) {
+        w[0] = this.tmpVec.x;
+        w[1] = this.tmpVec.y;
+        w[2] = this.tmpVec.z;
+        this.partPending = true;
+      }
+    }
+
+    if (this.partPending && this.clock - this.lastPartEmit >= PART_EMIT_INTERVAL) {
+      this.partPending = false;
+      this.lastPartEmit = this.clock;
+      emit('partMove');
     }
   }
 }

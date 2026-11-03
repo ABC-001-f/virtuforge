@@ -1,7 +1,7 @@
 /**
  * WindTunnelSystem: owns the model inside the tunnel, the LBM solver client,
- * the flow visuals, the pressure skin, metrics, shape-handle anchors, the
- * exploded view and the design-A ghost.
+ * the flow visuals, the pressure skin, metrics, shape-handle and part anchors,
+ * part edits (move / hide), the exploded view and the design-A ghost.
  *
  * Scene graph (all under the `tunnel` node, tunnel-local frame):
  *   tunnel
@@ -22,9 +22,11 @@ import {
   Vector3,
 } from '@iwsdk/core';
 import type { Entity, Mesh, Object3D } from '@iwsdk/core';
+import { CUSTOM_MODEL_ID, GLTF_MODELS } from './aero/catalog.js';
 import { FlowViz } from './aero/flow-viz.js';
-import { emit, lab, on, DEFAULT_CAR_PARAMS } from './aero/lab-state.js';
-import type { HandleWorld } from './aero/lab-state.js';
+import { clearPartEdits, emit, lab, on, partEdit, partKey, DEFAULT_CAR_PARAMS } from './aero/lab-state.js';
+import type { HandleWorld, PartEdit, PartWorld } from './aero/lab-state.js';
+import { getCustomModel, orientModel } from './aero/model-import.js';
 import { buildAirplane, buildDrone, buildWing } from './aero/models/aircraft.js';
 import { buildCar, disposeCar } from './aero/models/car.js';
 import { PressureSkin } from './aero/pressure-skin.js';
@@ -33,15 +35,22 @@ import type { Fit } from './aero/silhouette.js';
 import { SolverClient } from './aero/solver-client.js';
 import type { FlowFrame } from './aero/solver-client.js';
 import { GRID_NX, GRID_NY, MAX_WIND_KMH, windToLattice } from './aero/tunnel.js';
-import { MODEL_CATALOG } from './aero/types.js';
+import { isCarId, modelInfo } from './aero/types.js';
 import type { HandleAnchor, ModelId, ModelInfo } from './aero/types.js';
 
 const DEG = Math.PI / 180;
 const SHAPE_REBUILD_INTERVAL = 1 / 6;    // seconds between car rebuilds while dragging
+const PART_MASK_INTERVAL = 1 / 8;        // seconds between silhouette updates while a part is dragged
 const METRICS_INTERVAL_MS = 250;         // metrics emitted at most 4x/s
 const EXPLODE_DISTANCE = 0.6;            // model-local units (car length = 1)
 const EXPLODE_RATE = 5;                  // 1/s, exponential approach
 const FAN_MAX_SPIN = 30;                 // rad/s at MAX_WIND_KMH
+/** A very detailed import gets handles on its largest parts only; the rest stay listed. */
+const MAX_PART_HANDLES = 24;
+/** World metres a part handle floats in front of its part (handle radius 15 mm + a gap). */
+const PART_HANDLE_STANDOFF = 0.02;
+/** Minimum world distance between two part handles (two handle diameters plus a gap). */
+const PART_HANDLE_SPACING = 0.04;
 
 /** One ghost material shared by every design-A ghost. */
 const GHOST_MAT = new MeshBasicMaterial({
@@ -52,14 +61,6 @@ const GHOST_MAT = new MeshBasicMaterial({
   depthWrite: false,
 });
 
-function isCarId(id: ModelId): id is 'ev' | 'sport' | 'van' {
-  return id === 'ev' || id === 'sport' || id === 'van';
-}
-
-function catalogEntry(id: ModelId): ModelInfo {
-  return MODEL_CATALOG.find((m) => m.id === id) ?? MODEL_CATALOG[0];
-}
-
 /** Everything known about the model currently in the tunnel. */
 interface LoadedModel {
   id: ModelId;
@@ -67,12 +68,36 @@ interface LoadedModel {
   root: Object3D;
   fit: Fit;
   handles: HandleAnchor[];
-  /** Exploded-view parts with their rest positions and offsets (in each part's parent frame). */
+  /** Parts (exploded view + part editing): rest positions as built, current rest (with edits), explode offsets. */
   parts: Object3D[];
+  names: string[];
+  rest0: Vector3[];
   rest: Vector3[];
   offset: Vector3[];
+  /** Which parts get a grab handle (largest MAX_PART_HANDLES). */
+  handleable: boolean[];
   /** Procedural car: its per-build geometries are ours to dispose. */
   ownsGeometry: boolean;
+}
+
+/** A part drag in progress: where the handle started and the edit it started from. */
+interface PartDrag {
+  index: number;
+  anchorWorld: Vector3;
+  offset0: [number, number, number];
+}
+
+/** Every mesh under `root`, in traversal order, with a readable name each. */
+function collectMeshParts(root: Object3D): { parts: Object3D[]; names: string[] } {
+  const parts: Object3D[] = [];
+  const names: string[] = [];
+  root.traverse((obj) => {
+    if (!(obj as Mesh).isMesh) return;
+    parts.push(obj);
+    const own = obj.name || obj.parent?.name || '';
+    names.push(own ? own : `Part ${parts.length}`);
+  });
+  return { parts, names };
 }
 
 export class WindTunnelSystem extends createSystem({}) {
@@ -89,15 +114,20 @@ export class WindTunnelSystem extends createSystem({}) {
   private current: LoadedModel | null = null;
   private ghost: Object3D | null = null;
   private ghostOwnsGeometry = false;
+  private drag: PartDrag | null = null;
 
   private loadToken = 0;
   private maskDirty = false;
   private shapePending = false;
   private sinceShapeBuild = SHAPE_REBUILD_INTERVAL;
+  private partMaskPending = false;
+  private sincePartMask = PART_MASK_INTERVAL;
   private explodeT = 0;
   private lastMetricsEmit = 0;
   private lastSettled = false;
   private readonly scratch = new Vector3();
+  private readonly scratch2 = new Vector3();
+  private readonly scratchBox = new Box3();
 
   init(): void {
     // The scene JSON may still be loading; finish setup once the tunnel node exists.
@@ -127,6 +157,7 @@ export class WindTunnelSystem extends createSystem({}) {
 
     this.solver = new SolverClient();
     this.solver.onFrame = (frame) => this.onFrame(frame);
+    this.solver.onError = (message) => this.setStatus(`Solver stopped: ${message} - reload the page`);
 
     const subs = [
       on('model', () => this.loadModel(lab.modelId)),
@@ -140,6 +171,12 @@ export class WindTunnelSystem extends createSystem({}) {
       on('explode', () => this.applyWind()),
       on('saveA', () => this.saveA()),
       on('clearA', () => this.clearA()),
+      on('partMove', () => this.onPartMove()),
+      on('partVisibility', () => this.applyPartEdits(true)),
+      on('resetParts', () => this.resetParts()),
+      on('custom', () => {
+        if (lab.modelId === CUSTOM_MODEL_ID && lab.customModel) this.loadModel(CUSTOM_MODEL_ID);
+      }),
     ];
     for (const unsubscribe of subs) this.cleanupFuncs.push(unsubscribe);
 
@@ -157,6 +194,14 @@ export class WindTunnelSystem extends createSystem({}) {
       this.shapePending = false;
       this.sinceShapeBuild = 0;
       this.rebuildCar();
+    }
+
+    // Throttled silhouette update while a part is dragged.
+    this.sincePartMask += delta;
+    if (this.partMaskPending && this.sincePartMask >= PART_MASK_INTERVAL) {
+      this.partMaskPending = false;
+      this.sincePartMask = 0;
+      this.maskDirty = true;
     }
 
     this.animateExplode(delta);
@@ -226,27 +271,27 @@ export class WindTunnelSystem extends createSystem({}) {
 
   private loadModel(id: ModelId): void {
     const token = ++this.loadToken;
-    const info = catalogEntry(id);
+    const info = modelInfo(id);
     this.shapePending = false;
+    this.partMaskPending = false;
+    this.drag = null;
     this.clearGhost();
 
+    if (info.source === 'custom') {
+      this.loadCustom(token);
+      return;
+    }
+
     if (info.source === 'gltf') {
-      this.setStatus(`Loading ${info.label.replace(/ \(.*\)$/, '')}...`);
+      const entry = GLTF_MODELS.find((m) => m.id === id);
+      this.setStatus(`Loading ${info.label.replace(/ \(.*\)$/u, '')}...`);
       AssetManager.loadGLTFById(id)
         .then((gltf) => {
           if (token !== this.loadToken) return;   // a newer selection won
-          const scene = gltf.scene.clone(true);
-          // Unknown nose orientation: make the length run along x.
-          const box = new Box3().setFromObject(scene);
-          if (box.max.z - box.min.z > box.max.x - box.min.x) scene.rotation.y = Math.PI / 2;
-          const root = new Group();
+          const { root } = orientModel(gltf.scene.clone(true), entry?.orientation);
           root.name = `model-${id}`;
-          root.add(scene);
-          const parts: Object3D[] = [];
-          scene.traverse((obj) => {
-            if ((obj as Mesh).isMesh) parts.push(obj);
-          });
-          this.install(id, info, root, parts, [], false);
+          const { parts, names } = collectMeshParts(root);
+          this.install(id, info, root, parts, names, [], false);
         })
         .catch((err: unknown) => {
           if (token !== this.loadToken) return;
@@ -259,12 +304,45 @@ export class WindTunnelSystem extends createSystem({}) {
     if (isCarId(id)) {
       if (!lab.carParams) lab.carParams = { ...DEFAULT_CAR_PARAMS[id] };
       const built = buildCar(lab.carParams, id);
-      this.install(id, info, built.root, built.parts, built.handles, true);
+      this.install(id, info, built.root, built.parts, built.parts.map((p) => p.name), built.handles, true);
       return;
     }
 
     const built = id === 'airplane' ? buildAirplane() : id === 'drone' ? buildDrone() : buildWing();
-    this.install(id, info, built.root, built.parts, built.handles, false);
+    this.install(id, info, built.root, built.parts, built.parts.map((p) => p.name), built.handles, false);
+  }
+
+  /** The user's imported model: staged by src/aero/model-import.ts, oriented per its settings. */
+  private loadCustom(token: number): void {
+    this.setStatus('Loading your model...');
+    getCustomModel()
+      .then((custom) => {
+        if (token !== this.loadToken) return;
+        if (!custom) {
+          this.removeCurrent();
+          this.publishHandles();
+          this.publishParts();
+          this.setStatus('No imported model yet - use Import model on the browser page');
+          return;
+        }
+        const meta = custom.meta;
+        const { root } = orientModel(custom.cloneScene(), meta.orientation, meta.flipNose);
+        root.name = `model-${CUSTOM_MODEL_ID}`;
+        const info: ModelInfo = {
+          id: CUSTOM_MODEL_ID,
+          label: meta.name,
+          kind: meta.kind,
+          source: 'custom',
+          credit: `Imported model: ${custom.fileName} (${(custom.bytes / 1048576).toFixed(1)} MB)`,
+        };
+        const { parts, names } = collectMeshParts(root);
+        this.install(CUSTOM_MODEL_ID, info, root, parts, names, [], false);
+      })
+      .catch((err: unknown) => {
+        if (token !== this.loadToken) return;
+        console.error('[WindTunnel] failed to load the imported model', err);
+        this.setStatus('Could not load your model - import it again');
+      });
   }
 
   /** Rebuild the parametric car after a shape change, keeping the ghost. */
@@ -272,15 +350,16 @@ export class WindTunnelSystem extends createSystem({}) {
     const cur = this.current;
     if (!cur || !isCarId(cur.id) || !lab.carParams) return;
     const built = buildCar(lab.carParams, cur.id);
-    this.install(cur.id, cur.info, built.root, built.parts, built.handles, true);
+    this.install(cur.id, cur.info, built.root, built.parts, built.parts.map((p) => p.name), built.handles, true);
   }
 
-  /** Swap `root` in as the current model: fit, place, explode data, skin, handles, mask. */
+  /** Swap `root` in as the current model: fit, place, explode data, part edits, skin, handles, mask. */
   private install(
     id: ModelId,
     info: ModelInfo,
     root: Object3D,
     parts: Object3D[],
+    names: string[],
     handles: HandleAnchor[],
     ownsGeometry: boolean,
   ): void {
@@ -295,12 +374,27 @@ export class WindTunnelSystem extends createSystem({}) {
     this.pivot.rotation.set(0, 0, -lab.angleDeg * DEG);
     this.pivot.add(root);
 
-    this.current = { id, info, root, fit, handles, parts: explode.parts, rest: explode.rest, offset: explode.offset, ownsGeometry };
+    this.current = {
+      id,
+      info,
+      root,
+      fit,
+      handles,
+      parts: explode.parts,
+      names: explode.parts === parts ? names : explode.parts.map((p, i) => p.name || `Part ${i + 1}`),
+      rest0: explode.rest,
+      rest: explode.rest.map((v) => v.clone()),
+      offset: explode.offset,
+      handleable: explode.handleable,
+      ownsGeometry,
+    };
+    this.applyPartEdits(false);
     this.applyExplodeOffsets();
     if (lab.skin) this.skin.apply(root);
     this.maskDirty = true;
     this.lastSettled = false;
     this.publishHandles();
+    this.publishParts();
     this.setStatus(this.windStatus());
   }
 
@@ -320,6 +414,7 @@ export class WindTunnelSystem extends createSystem({}) {
     this.maskDirty = true;
     this.lastSettled = false;
     this.publishHandles();
+    this.publishParts();
   }
 
   private applySkin(): void {
@@ -349,10 +444,161 @@ export class WindTunnelSystem extends createSystem({}) {
     emit('handles');
   }
 
+  // ---- Parts: edit (move / hide) and publish ----
+
+  /** World-space centre of every part (hidden ones included, so the browser list can show them). */
+  private publishParts(): void {
+    const cur = this.current;
+    const anchors: PartWorld[] = [];
+    if (cur) {
+      this.tunnelObject.updateMatrixWorld(true);
+      for (let i = 0; i < cur.parts.length; i++) {
+        const edit = lab.partEdits.get(partKey(cur.id, i));
+        const hidden = edit?.hidden ?? false;
+        const handle = cur.handleable[i] && !hidden;
+        const prev = lab.draggingPart === i ? lab.partAnchors.find((a) => a.index === i) : undefined;
+        let world: [number, number, number];
+        if (prev) {
+          world = prev.world;
+        } else {
+          this.partCentre(cur.parts[i], this.scratch);
+          // Parts that share a top edge (a car body and its glass) would stack their
+          // handles on one spot; step later ones downstream until they are apart.
+          if (handle) {
+            for (let guard = 0; guard < 12 && this.handleTooClose(anchors, this.scratch); guard++) {
+              this.scratch.x += PART_HANDLE_SPACING;
+            }
+          }
+          world = [this.scratch.x, this.scratch.y, this.scratch.z];
+        }
+        anchors.push({ index: i, name: cur.names[i], world, hidden, handle });
+      }
+    }
+    lab.partAnchors = anchors;
+    emit('parts');
+  }
+
+  private handleTooClose(anchors: PartWorld[], p: Vector3): boolean {
+    for (const a of anchors) {
+      if (!a.handle) continue;
+      const dx = a.world[0] - p.x;
+      const dy = a.world[1] - p.y;
+      const dz = a.world[2] - p.z;
+      if (dx * dx + dy * dy + dz * dz < PART_HANDLE_SPACING * PART_HANDLE_SPACING) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Where a part's handle goes: above the top-front edge of its bounds (+y,
+   * +z toward the seated user). A handle at the part's centre would be buried
+   * inside it, where neither eyes nor rays can reach; the top-front corner is
+   * clear space from the seat, so the hand ray lands on it before anything else.
+   */
+  private partCentre(part: Object3D, out: Vector3): Vector3 {
+    this.scratchBox.setFromObject(part);
+    if (this.scratchBox.isEmpty()) return part.getWorldPosition(out);
+    this.scratchBox.getCenter(out);
+    out.y = this.scratchBox.max.y + PART_HANDLE_STANDOFF;
+    out.z = this.scratchBox.max.z + PART_HANDLE_STANDOFF;
+    return out;
+  }
+
+  /** Put every part at rest0 + its edit offset and apply its hidden flag. */
+  private applyPartEdits(republish: boolean): void {
+    const cur = this.current;
+    if (!cur) return;
+    for (let i = 0; i < cur.parts.length; i++) {
+      const edit = lab.partEdits.get(partKey(cur.id, i));
+      const part = cur.parts[i];
+      const rest = cur.rest[i].copy(cur.rest0[i]);
+      if (edit) {
+        rest.x += edit.offset[0];
+        rest.y += edit.offset[1];
+        rest.z += edit.offset[2];
+        part.visible = !edit.hidden;
+      } else {
+        part.visible = true;
+      }
+      part.position.copy(rest);
+    }
+    this.applyExplodeOffsets();
+    this.maskDirty = true;
+    this.lastSettled = false;
+    if (republish) {
+      this.publishParts();
+      this.setStatus(this.windStatus());
+    }
+  }
+
+  /** ControlsSystem moved a part handle: convert the world travel into the part's parent frame. */
+  private onPartMove(): void {
+    const cur = this.current;
+    if (!cur) return;
+    const index = lab.draggingPart;
+
+    if (index === null) {
+      // Drag finished: the last 'partMove' already landed; snap the anchor to the new centre.
+      if (this.drag) {
+        this.drag = null;
+        this.partMaskPending = false;
+        this.maskDirty = true;
+        this.lastSettled = false;
+        this.publishParts();
+        this.setStatus(this.windStatus());
+      }
+      return;
+    }
+
+    const part = cur.parts[index];
+    const anchor = lab.partAnchors.find((a) => a.index === index);
+    if (!part || !anchor) return;
+
+    if (!this.drag || this.drag.index !== index) {
+      const edit = partEdit(cur.id, index);
+      this.drag = {
+        index,
+        anchorWorld: new Vector3(anchor.world[0], anchor.world[1], anchor.world[2]),
+        offset0: [edit.offset[0], edit.offset[1], edit.offset[2]],
+      };
+    }
+
+    const drag = this.drag;
+    const parent = part.parent ?? cur.root;
+    this.tunnelObject.updateMatrixWorld(true);
+    const now = this.scratch.set(lab.partDragWorld[0], lab.partDragWorld[1], lab.partDragWorld[2]);
+    parent.worldToLocal(now);
+    const start = parent.worldToLocal(this.scratch2.copy(drag.anchorWorld));
+    const edit: PartEdit = partEdit(cur.id, index);
+    edit.offset = [
+      drag.offset0[0] + (now.x - start.x),
+      drag.offset0[1] + (now.y - start.y),
+      drag.offset0[2] + (now.z - start.z),
+    ];
+    const rest = cur.rest[index].copy(cur.rest0[index]);
+    rest.x += edit.offset[0];
+    rest.y += edit.offset[1];
+    rest.z += edit.offset[2];
+    part.position.copy(rest);
+    this.partMaskPending = true;
+    this.setStatus(`Moving ${cur.names[index]}`);
+  }
+
+  private resetParts(): void {
+    const cur = this.current;
+    if (!cur) return;
+    clearPartEdits(cur.id);
+    this.drag = null;
+    this.applyPartEdits(true);
+  }
+
   // ---- Exploded view ----
 
-  /** Rest positions and exploded offsets, measured with the root at its native transform. */
-  private explodeData(root: Object3D, parts: Object3D[]): { parts: Object3D[]; rest: Vector3[]; offset: Vector3[] } {
+  /** Rest positions, exploded offsets and handle eligibility, measured with the root at its native transform. */
+  private explodeData(
+    root: Object3D,
+    parts: Object3D[],
+  ): { parts: Object3D[]; rest: Vector3[]; offset: Vector3[]; handleable: boolean[] } {
     const list = parts.length > 0 ? parts : root.children.slice();
     root.updateMatrixWorld(true);   // root is parentless and untransformed here: world = model-local
     const modelBox = new Box3().setFromObject(root);
@@ -360,10 +606,12 @@ export class WindTunnelSystem extends createSystem({}) {
     const partBox = new Box3();
     const rest: Vector3[] = [];
     const offset: Vector3[] = [];
+    const size: number[] = [];
     for (const part of list) {
       rest.push(part.position.clone());
       partBox.setFromObject(part);
       const from = partBox.isEmpty() ? part.getWorldPosition(new Vector3()) : partBox.getCenter(new Vector3());
+      size.push(partBox.isEmpty() ? 0 : partBox.getSize(new Vector3()).length());
       const dir = from.clone().sub(modelCentre);
       if (dir.lengthSq() < 1e-6) dir.set(0, 1, 0);
       dir.normalize().multiplyScalar(EXPLODE_DISTANCE);
@@ -372,7 +620,10 @@ export class WindTunnelSystem extends createSystem({}) {
       const parent = part.parent ?? root;
       offset.push(parent.worldToLocal(to).sub(parent.worldToLocal(from)));
     }
-    return { parts: list, rest, offset };
+    const ranked = size.map((s, i) => [s, i] as const).sort((a, b) => b[0] - a[0]);
+    const handleable = list.map(() => false);
+    for (let k = 0; k < Math.min(MAX_PART_HANDLES, ranked.length); k++) handleable[ranked[k][1]] = true;
+    return { parts: list, rest, offset, handleable };
   }
 
   private animateExplode(delta: number): void {

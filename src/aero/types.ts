@@ -1,6 +1,10 @@
 import type { Group, Object3D, Vector3 } from '@iwsdk/core';
+import { CUSTOM_MODEL_ID, GLTF_MODELS } from './catalog.js';
 
-export type ModelId = 'ev' | 'sport' | 'van' | 'airplane' | 'drone' | 'wing' | 'toycar';
+/** Built-in parametric cars (the ones with shape handles). */
+export type CarId = 'ev' | 'sport' | 'van';
+/** Any model id: a procedural model, a catalog glTF (src/aero/catalog.ts) or the user's own import. */
+export type ModelId = string;
 /** Ground vehicles sit on the tunnel floor; air vehicles are centred in the tunnel height. */
 export type ModelKind = 'ground' | 'air';
 export type ViewMode = 'smoke' | 'speed' | 'pressure';
@@ -9,8 +13,12 @@ export interface ModelInfo {
   id: ModelId;
   label: string;
   kind: ModelKind;
-  source: 'procedural' | 'gltf';
+  source: 'procedural' | 'gltf' | 'custom';
   credit?: string;
+}
+
+export function isCarId(id: ModelId): id is CarId {
+  return id === 'ev' || id === 'sport' || id === 'van';
 }
 
 export const MODEL_CATALOG: ModelInfo[] = [
@@ -20,14 +28,19 @@ export const MODEL_CATALOG: ModelInfo[] = [
   { id: 'airplane', label: 'Airplane', kind: 'air', source: 'procedural' },
   { id: 'drone', label: 'Drone', kind: 'air', source: 'procedural' },
   { id: 'wing', label: 'Wing NACA 2412', kind: 'air', source: 'procedural' },
-  {
-    id: 'toycar',
-    label: 'Toy Car (imported glTF)',
-    kind: 'ground',
+  ...GLTF_MODELS.map<ModelInfo>((m) => ({
+    id: m.id,
+    label: m.label,
+    kind: m.kind,
     source: 'gltf',
-    credit: 'ToyCar by Guido Odendahl & Eric Chadwick, CC0 (Khronos glTF Sample Assets)',
-  },
+    credit: m.credit,
+  })),
+  { id: CUSTOM_MODEL_ID, label: 'My model', kind: 'ground', source: 'custom' },
 ];
+
+export function modelInfo(id: ModelId): ModelInfo {
+  return MODEL_CATALOG.find((m) => m.id === id) ?? MODEL_CATALOG[0];
+}
 
 /**
  * Parametric car shape. All values are fractions of the car length (car is built at length 1).
@@ -64,7 +77,7 @@ export interface HandleAnchor {
 export interface BuiltModel {
   /** Parentless root at native scale, oriented per the frame rules above (nose toward -x). */
   root: Group;
-  /** Separable parts for the exploded view, each a direct child of root. Empty = explode meshes generically. */
+  /** Separable parts for the exploded view and part editing, each a direct child of root. Empty = use meshes. */
   parts: Object3D[];
   /** Shape handles (parametric cars only). */
   handles: HandleAnchor[];

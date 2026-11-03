@@ -3,6 +3,6 @@
  */
 
 import { defineComponents } from '@iwsdk/core';
-import { AngleDial, ShapeHandle, WindLever } from './aero-components.js';
+import { AngleDial, PartHandle, ShapeHandle, WindLever } from './aero-components.js';
 
-export default defineComponents([WindLever, AngleDial, ShapeHandle]);
+export default defineComponents([WindLever, AngleDial, ShapeHandle, PartHandle]);

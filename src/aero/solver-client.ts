@@ -31,6 +31,8 @@ interface FrameMessage extends FlowFrame {
 
 export class SolverClient {
   onFrame: ((frame: FlowFrame) => void) | null = null;
+  /** Called once if the worker crashes; the solver stays stopped until the page reloads. */
+  onError: ((message: string) => void) | null = null;
   private worker: Worker | null;
 
   constructor() {
@@ -41,6 +43,7 @@ export class SolverClient {
     };
     this.worker.onerror = (ev) => {
       console.error('[SolverClient] worker error:', ev.message);
+      this.onError?.(ev.message || 'worker error');
     };
   }
 

@@ -10,3 +10,8 @@ export const AngleDial = createComponent('AngleDial', {});
 export const ShapeHandle = createComponent('ShapeHandle', {
   param: { type: Types.String, default: '' },
 });
+
+/** Grabbable sphere that moves one part of the current model (created in code by ControlsSystem). */
+export const PartHandle = createComponent('PartHandle', {
+  index: { type: Types.Int16, default: -1 },
+});

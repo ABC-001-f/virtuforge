@@ -1,8 +1,32 @@
 {
-  "name": "virtuforge",
-  "version": "0.1.0",
+  "name": "virtuforge-aerolab",
+  "version": "1.0.0",
+  "description": "VIRTUFORGE: AeroLab - a hands-first WebXR wind tunnel with live lattice-Boltzmann airflow, parametric and imported glTF models, part editing and A/B design comparison.",
+  "author": "Achonu Bonaventure Chibuike",
+  "license": "MIT",
   "private": true,
+  "homepage": "https://abc-001-f.github.io/virtuforge/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ABC-001-f/virtuforge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ABC-001-f/virtuforge/issues"
+  },
+  "keywords": [
+    "webxr",
+    "iwsdk",
+    "three",
+    "wind-tunnel",
+    "lattice-boltzmann",
+    "cfd",
+    "meta-quest",
+    "gltf"
+  ],
   "type": "module",
+  "engines": {
+    "node": ">=20.19.0 <21.0.0-0 || >=22.12.0 <23.0.0-0 || >=24.0.0"
+  },
   "scripts": {
     "dev": "iwsdk dev restart --open --foreground",
     "dev:runtime": "vite",
@@ -12,7 +36,9 @@
     "reference:warmup": "iwsdk reference warmup",
     "typecheck": "tsc --noEmit",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "tsc -p tsconfig.test.json && node --test .test-out/test/",
+    "check": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "@iwsdk/core": "1.1.0-rc.2",
@@ -33,8 +59,5 @@
   "overrides": {
     "sharp": "0.35.4",
     "three": "npm:super-three@0.185.0"
-  },
-  "engines": {
-    "node": ">=20.19.0 <21.0.0-0 || >=22.12.0 <23.0.0-0 || >=24.0.0"
   }
 }

@@ -2,7 +2,9 @@
   AeroLab control panel. UiSystem (src/ui.ts) wires every button and writes the
   readouts. Model buttons switch variant to show the selection; wind-on-button
   and wind-off-button swap display. Lucide icons: Wind, Pause, Eye, Palette,
-  Layers, Save, Trash2, RotateCcw.
+  Layers, Save, Trash2, RotateCcw, Move, Upload. model-custom only shows once
+  the user has imported a model; parts-button / reset-parts-button only when
+  the current model has movable parts.
 -->
 <style>
   .root {
@@ -146,6 +148,10 @@
     <Button id="model-toycar" variant="secondary">
       <ButtonLabel>Toy Car</ButtonLabel>
     </Button>
+    <Button id="model-custom" variant="secondary" style="display: none">
+      <ButtonIcon><Upload></Upload></ButtonIcon>
+      <ButtonLabel>My model</ButtonLabel>
+    </Button>
   </div>
 
   <div class="section">LIVE READOUT</div>
@@ -192,9 +198,21 @@
       <ButtonIcon><Trash2></Trash2></ButtonIcon>
       <ButtonLabel>Clear A</ButtonLabel>
     </Button>
+  </div>
+
+  <div class="section">SHAPE AND PARTS</div>
+  <div class="row">
     <Button id="reset-shape-button" variant="secondary">
       <ButtonIcon><RotateCcw></RotateCcw></ButtonIcon>
       <ButtonLabel>Reset shape</ButtonLabel>
+    </Button>
+    <Button id="parts-button" variant="secondary">
+      <ButtonIcon><Move></Move></ButtonIcon>
+      <ButtonLabel>Edit parts</ButtonLabel>
+    </Button>
+    <Button id="reset-parts-button" variant="secondary">
+      <ButtonIcon><RotateCcw></RotateCcw></ButtonIcon>
+      <ButtonLabel>Reset parts</ButtonLabel>
     </Button>
   </div>
 

@@ -1,4 +1,4 @@
-# Builds VIRTUFORGE: AeroLab and publishes dist/ to GitHub Pages on every push to master.
+# Checks, builds and publishes VIRTUFORGE: AeroLab (dist/) to GitHub Pages on every push to master.
 # One-time setup: repo Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
 name: Deploy to GitHub Pages
 
@@ -26,6 +26,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
       - run: npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

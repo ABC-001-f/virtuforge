@@ -43,3 +43,7 @@ pids/
 .cursor/mcp.json
 .vscode/mcp.json
 .codex/config.toml
+
+# Compiled unit tests
+.test-out/
+artifacts/
