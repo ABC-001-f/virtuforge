@@ -3,6 +3,59 @@
 Target: under 2 minutes. Show the A-vs-B result clearly. Say the
 "before spending money on a prototype" line.
 
+## What the app is
+
+VIRTUFORGE AeroLab is a wind tunnel you put on your desk in VR. It runs in
+the browser on Meta Quest and Meta VR Glasses. Nothing to install, no
+controllers, you use your hands.
+
+What it does:
+
+- Loads a car, van, airplane, drone or wing, or **any 3D model you import**
+  (glTF, the standard format every CAD and 3D tool can export).
+- Blows real simulated air over it (a lattice-Boltzmann fluid solver running
+  live on the headset) and shows the flow as smoke, a speed or pressure map,
+  and a pressure-coloured skin on the model.
+- Reads out **drag and lift** as you change wind speed and the model's angle.
+- Lets you **reshape the model with your fingers**: pull the nose, lower the
+  roof, move a spoiler, a wing or a mirror, hide a part. The airflow re-forms
+  around the new shape within seconds.
+- **Save A, change something, read B**: "B has 12% less drag than A", with a
+  short test report of the conditions.
+
+## Why it matters: the advantages
+
+1. **Cost.** Physical wind-tunnel time and prototypes cost thousands per
+   iteration. AeroLab costs nothing per test.
+2. **Speed.** Idea to answer in minutes, not weeks. A full design, change and
+   compare loop takes under 10 minutes.
+3. **No expert needed.** Professional CFD software takes training and days of
+   setup. Here a designer reaches in and moves the part with their hand.
+4. **Early.** It works at the sketch stage, before CAD is finished, when
+   changes are cheap. Bad ideas get thrown out before anyone builds them.
+5. **Anywhere.** It is a web link. Open it on a headset in the office, a
+   workshop or a classroom. Your own models stay on your device.
+6. **Honest.** It says what it is: a 2D slice for comparing designs, not a
+   certification tool. It tells you to validate the final design with full 3D
+   CFD or a real tunnel.
+
+## Who it helps
+
+- **Automotive**: body shape, spoilers, mirrors, underbody. Lower drag is
+  more range for an EV and less fuel for everything else.
+- **Aerospace and drones**: wing sections, angle of attack, lift versus drag,
+  rotor and arm placement on a drone.
+- **Motorsport**: fast what-if testing of wings and bodywork between sessions.
+- **Product and industrial design**: fans, helmets, bikes, sports gear,
+  anything that moves through air.
+- **Engineering education and training**: students see how air behaves and
+  why a shape works, instead of reading it in a textbook.
+- **Small teams and startups** that could never afford a wind tunnel or a
+  CFD licence get the same design-and-compare loop as a big manufacturer.
+
+The one line to remember: **test the idea before you spend money building
+it.**
+
 ## What to say
 
 ### Why I built it
