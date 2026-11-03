@@ -9,6 +9,7 @@ import projectOptions from 'virtual:iwsdk-project';
 import { initCustomModel } from './aero/model-import.js';
 import { ControlsSystem } from './controls.js';
 import { ImportOverlay } from './import-overlay.js';
+import { PointerVisualsSystem } from './pointer-visuals.js';
 import { UiSystem } from './ui.js';
 import { WindTunnelSystem } from './wind-tunnel.js';
 
@@ -34,6 +35,7 @@ World.create(container, projectOptions)
     world.registerSystem(WindTunnelSystem);
     world.registerSystem(ControlsSystem);
     world.registerSystem(UiSystem);
+    world.registerSystem(PointerVisualsSystem);
     new ImportOverlay(world);
     await initCustomModel();
   })
