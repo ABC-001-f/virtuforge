@@ -37,7 +37,7 @@
     "typecheck": "tsc --noEmit",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "tsc -p tsconfig.test.json && node --test .test-out/test/",
+    "test": "tsc -p tsconfig.test.json && node --test \".test-out/test/**/*.test.js\"",
     "check": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
